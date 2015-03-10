@@ -6,8 +6,16 @@
 gem "ruboty-bundler"
 ```
 
-## Usage
+## Example
 ```
-@ruboty add gem <gem-name>
-@ruboty delete gem <gem-name>
+@ruboty add gem ruboty-cron
+@ruboty add gem ruboty-cron >= 0.0.2
+@ruboty delete gem ruboty-cron
+```
+
+See [ruboty-github](https://github.com/r7kamura/ruboty-github) other commands.
+
+## ENV
+```
+RUBOTY_BUNDLER_REPOSITORY - Target repository name (e.g. r7kamura/kokodeikku_bot)
 ```
