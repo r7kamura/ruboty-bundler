@@ -7,8 +7,6 @@ require "tmpdir"
 module Ruboty
   module Handlers
     class Bundler < Base
-      DEFAULT_GIT_REPOSITORY_PATH = "/tmp/app"
-      DEFAULT_GITHUB_HOST = "github.com"
       NAMESPACE = Ruboty::Github::Actions::Base::NAMESPACE
 
       env :RUBOTY_BUNDLER_REPOSITORY, "Target repository name (e.g. r7kamura/kokodeikku_bot)"
@@ -28,30 +26,15 @@ module Ruboty
       def add(message)
         if client = client_for(message.from_name)
           message.reply("Bundler started")
-          response = client.contents(repository, path: "Gemfile")
-          gemfile_content = Base64.decode64(response[:content])
-          gemfile_lock_content = Base64.decode64(client.contents(repository, path: "Gemfile.lock")[:content])
-          gems = Gems.new(gemfile: gemfile_content, gemfile_lock: gemfile_lock_content)
+          gems = Gems.new(
+            gemfile_content: Base64.decode64(client.get("Gemfile")[:content]),
+            gemfile_lock_content: Base64.decode64(client.get("Gemfile.lock")[:content]),
+          )
           gems.add(message[:gem_name], version: message[:version])
-          gemfile_content = gems.to_s
-          gemfile_sha = response[:sha]
+          gemfile_content = GemfileView.new(gems).to_s
           gemfile_lock_content = Install.new(gemfile_content).call
-          gemfile_lock_sha = client.contents(repository, path: "Gemfile.lock")[:sha]
-          commit_message = "Add #{message[:gem_name]} gem"
-          client.update_contents(
-            repository,
-            "Gemfile",
-            commit_message,
-            gemfile_sha,
-            gemfile_content,
-          )
-          client.update_contents(
-            repository,
-            "Gemfile.lock",
-            commit_message,
-            gemfile_lock_sha,
-            gemfile_lock_content,
-          )
+          client.update("Gemfile", gemfile_content)
+          client.update("Gemfile.lock", gemfile_lock_content)
           message.reply("Bundler finished")
         else
           message.reply("I don't know your GitHub access token")
@@ -75,17 +58,57 @@ module Ruboty
         robot.brain.data[NAMESPACE] ||= {}
       end
 
-      def api_endpoint
-        "https://#{github_host}/api/v3" if github_host
-      end
-
       # @param username [String, nil]
-      # @return [Octokit::Client, nil]
+      # @return [Ruboty::Bundler::Client, nil]
       def client_for(username)
         if access_token = access_tokens_table[username]
-          Octokit::Client.new(
+          Client.new(access_token: access_token)
+        end
+      end
+
+      class Client
+        DEFAULT_GITHUB_HOST = "github.com"
+
+        def initialize(access_token: nil)
+          @access_token = access_token
+        end
+
+        # @param path [String] File path (e.g. "Gemfile")
+        # @return [String] File content
+        def get(path)
+          cache[path] ||= octokit_client.contents(repository, path: path)
+        end
+
+        # @param path [String] File path (e.g. "Gemfile")
+        # @param content [String] File content
+        def update(path, content)
+          octokit_client.update_contents(
+            repository,
+            path,
+            "Update #{path}",
+            get(path)[:sha],
+            content,
+          )
+        end
+
+        private
+
+        def api_endpoint
+          "https://#{github_host}/api/v3" if github_host
+        end
+
+        def cache
+          @cache ||= {}
+        end
+
+        def github_host
+          ENV["GITHUB_HOST"]
+        end
+
+        def octokit_client
+          @octokit_client ||= Octokit::Client.new(
             {
-              access_token: access_token,
+              access_token: @access_token,
               api_endpoint: api_endpoint,
               web_endpoint: web_endpoint,
             }.reject do |key, value|
@@ -93,26 +116,14 @@ module Ruboty
             end
           )
         end
-      end
 
-      def git_repository_path
-        DEFAULT_GIT_REPOSITORY_PATH
-      end
+        def repository
+          ENV["RUBOTY_BUNDLER_REPOSITORY"]
+        end
 
-      def git_repository_url
-        web_endpoint + ENV["RUBOTY_BUNDLER_REPOSITORY"]
-      end
-
-      def github_host
-        ENV["GITHUB_HOST"]
-      end
-
-      def repository
-        ENV["RUBOTY_BUNDLER_REPOSITORY"]
-      end
-
-      def web_endpoint
-        "https://#{github_host || DEFAULT_GITHUB_HOST}/"
+        def web_endpoint
+          "https://#{github_host || DEFAULT_GITHUB_HOST}/"
+        end
       end
 
       class DependencyView
@@ -141,12 +152,25 @@ module Ruboty
         end
       end
 
+      class GemfileView
+        def initialize(gems)
+          @gems = gems
+        end
+
+        def to_s
+          %<source "https://rubygems.org"\n\n> +
+          @gems.dependencies.map do |dependency|
+            DependencyView.new(dependency).to_s
+          end.join("\n")
+        end
+      end
+
       class Gems
-        # @param gemfile [String] Content of Gemfile
-        # @param gemfile_lcok [String] Content of Gemfile.lock
-        def initialize(gemfile: nil, gemfile_lock: nil)
-          @gemfile = gemfile
-          @gemfile_lock = gemfile_lock
+        # @param gemfile_content [String]
+        # @param gemfile_lcok_content [String]
+        def initialize(gemfile_content: nil, gemfile_lock_content: nil)
+          @gemfile_content = gemfile_content
+          @gemfile_lock_content = gemfile_lock_content
         end
 
         def add(gem_name, version: nil)
@@ -156,16 +180,6 @@ module Ruboty
           dependencies << ::Bundler::Dependency.new(gem_name, version || ">= 0")
         end
 
-        # @return [String] Valid Gemfile content
-        def to_s
-          %<source "https://rubygems.org"\n\n> +
-          dependencies.map do |dependency|
-            DependencyView.new(dependency).to_s
-          end.join("\n")
-        end
-
-        private
-
         def dependencies
           @dependencies ||= ::Bundler::Dsl.evaluate(
             gemfile_file.path,
@@ -174,16 +188,18 @@ module Ruboty
           ).dependencies
         end
 
+        private
+
         def gemfile_file
           @gemfile_file ||= Tempfile.new("Gemfile").tap do |file|
-            file.write(@gemfile)
+            file.write(@gemfile_content)
             file.flush
           end
         end
 
         def gemfile_lock_file
           @gemfile_lock_file ||= Tempfile.new("Gemfile.lock").tap do |file|
-            file.write(@gemfile_lock)
+            file.write(@gemfile_lock_content)
             file.flush
           end
         end
