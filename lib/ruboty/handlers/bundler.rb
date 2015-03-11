@@ -241,7 +241,7 @@ module Ruboty
             Dir.chdir(dir) do
               File.write("Gemfile", @gemfile_content)
               ::Bundler.with_clean_env do
-                Ruboty.logger.debug(`bundle install`)
+                Ruboty.logger.debug(`bundle install --no-deployment`)
               end
               File.read("Gemfile.lock")
             end
