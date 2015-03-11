@@ -1,3 +1,6 @@
+## 0.1.2
+- Ignore .bundle/config for Heroku environment
+
 ## 0.1.1
 - Add delete command
 
