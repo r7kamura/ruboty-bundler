@@ -43,12 +43,26 @@ module Ruboty
         message.reply("Failed to add gem")
       end
 
-      # TODO
       def delete(message)
         if client = client_for(message.from_name)
+          message.reply("Bundler started")
+          gems = Gems.new(
+            gemfile_content: Base64.decode64(client.get("Gemfile")[:content]),
+            gemfile_lock_content: Base64.decode64(client.get("Gemfile.lock")[:content]),
+          )
+          gems.delete(message[:gem_name])
+          gemfile_content = GemfileView.new(gems).to_s
+          gemfile_lock_content = Install.new(gemfile_content).call
+          client.update("Gemfile", gemfile_content)
+          client.update("Gemfile.lock", gemfile_lock_content)
+          message.reply("Bundler finished")
         else
           message.reply("I don't know your GitHub access token")
         end
+      rescue GemNotFound
+        message.reply("Gem not found")
+      rescue Errno::ENOENT
+        message.reply("Failed to delete gem")
       end
 
       private
@@ -165,6 +179,9 @@ module Ruboty
         end
       end
 
+      class GemNotFound < StandardError
+      end
+
       class Gems
         # @param gemfile_content [String]
         # @param gemfile_lcok_content [String]
@@ -178,6 +195,13 @@ module Ruboty
             dependency.name == gem_name
           end
           dependencies << ::Bundler::Dependency.new(gem_name, version || ">= 0")
+        end
+
+        def delete(gem_name)
+          raise GemNotFound if dependencies.all? {|dependency| dependency.name != gem_name }
+          dependencies.reject! do |dependency|
+            dependency.name == gem_name
+          end
         end
 
         def dependencies
