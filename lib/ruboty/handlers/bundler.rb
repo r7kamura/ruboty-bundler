@@ -237,6 +237,7 @@ module Ruboty
 
         # @return [String] Content of Gemfile.lock.
         def call
+          File.delete(".bundle/config") rescue nil
           Dir.mktmpdir do |dir|
             Dir.chdir(dir) do
               File.write("Gemfile", @gemfile_content)
