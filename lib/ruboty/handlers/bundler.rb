@@ -147,6 +147,10 @@ module Ruboty
 
         def to_s
           str = "gem #{arguments.join(', ')}"
+          if @dependency.source && @dependency.source.options && @dependency.source.options["uri"]
+            str << ", git: #{@dependency.source.options['uri'].inspect}"
+          end
+          str
         end
 
         private
