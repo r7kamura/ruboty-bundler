@@ -8,8 +8,13 @@ Gem::Specification.new do |spec|
   spec.authors       = ["Ryo Nakamura"]
   spec.email         = ["r7kamura@gmail.com"]
   spec.summary       = "Ruboty plug-in to manage Gemfile on GitHub repository"
-  spec.homepage      = "https://github.com/r7kamura/ruboty"
+  spec.homepage      = "https://github.com/r7kamura/ruboty-bundler"
   spec.license       = "MIT"
+
+  spec.metadata["homepage_uri"] = spec.homepage
+  spec.metadata["source_code_uri"] = spec.homepage
+  spec.metadata["changelog_uri"] = "#{spec.homepage}/releases"
+  spec.metadata["rubygems_mfa_required"] = "true"
   spec.files         = `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
   spec.require_paths = ["lib"]
 
